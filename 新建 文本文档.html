@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>广州图书馆电力监管系统</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #0a1628;
+    color: #e0e8f0;
+    min-height: 100vh;
+  }
+  header {
+    background: linear-gradient(90deg, #0d2137, #123a5c);
+    padding: 18px 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #1e5f8a;
+  }
+  header h1 { font-size: 22px; letter-spacing: 2px; color:#4fc3f7; }
+  header .sub { font-size: 12px; color:#7a9bb5; margin-top:4px; }
+  .clock { font-size: 14px; color:#4fc3f7; text-align:right; }
+  .clock .date { font-size:12px; color:#7a9bb5; }
+  .container { padding: 20px 30px; }
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .kpi {
+    background: linear-gradient(145deg, #112a42, #0d2137);
+    border: 1px solid #1e5f8a;
+    border-radius: 10px;
+    padding: 18px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi::before {
+    content:''; position:absolute; left:0; top:0; width:4px; height:100%;
+    background:#4fc3f7;
+  }
+  .kpi .label { font-size:13px; color:#8fb4cc; margin-bottom:8px; }
+  .kpi .value { font-size:26px; font-weight:bold; color:#4fc3f7; }
+  .kpi .value small { font-size:13px; color:#8fb4cc; font-weight:normal; }
+  .kpi .trend { font-size:12px; margin-top:6px; }
+  .up { color:#ff6b6b; } .down { color:#4caf50; }
+  .grid2 { display:grid; grid-template-columns: 2fr 1fr; gap:20px; margin-bottom:20px; }
+  .grid2b { display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px; }
+  .card {
+    background:#0d2137;
+    border:1px solid #1e5f8a;
+    border-radius:10px;
+    padding:18px;
+  }
+  .card h3 {
+    font-size:15px; color:#4fc3f7; margin-bottom:14px;
+    border-left:3px solid #4fc3f7; padding-left:8px;
+  }
+  canvas { max-height:260px; }
+  .alarm-list { list-style:none; }
+  .alarm-list li {
+    padding:10px 12px; margin-bottom:8px; border-radius:6px;
+    font-size:13px; display:flex; justify-content:space-between;
+    background:#12293f;
+  }
+  .alarm-list li.red { border-left:4px solid #ff4757; }
+  .alarm-list li.orange { border-left:4px solid #ffa502; }
+  .alarm-list li.yellow { border-left:4px solid #ffd93d; }
+  .tag { font-size:11px; padding:2px 8px; border-radius:10px; }
+  .tag.red { background:#ff4757; color:#fff; }
+  .tag.orange { background:#ffa502; color:#000; }
+  .tag.yellow { background:#ffd93d; color:#000; }
+  .price-table { width:100%; font-size:13px; border-collapse:collapse; }
+  .price-table th, .price-table td {
+    padding:8px 10px; text-align:left; border-bottom:1px solid #1e3a52;
+  }
+  .price-table th { color:#8fb4cc; font-weight:normal; }
+  .price-table .current { color:#4fc3f7; font-weight:bold; }
+  footer { text-align:center; padding:16px; font-size:12px; color:#5a7a92; border-top:1px solid #1e3a52; margin-top:20px;}
+  @media(max-width:900px){ .grid2,.grid2b{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⚡ 广州图书馆电力监管系统</h1>
+    <div class="sub">Guangzhou Library Power Monitoring & Management Platform</div>
+  </div>
+  <div class="clock">
+    <div id="time">--:--:--</div>
+    <div class="date" id="date">----</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- KPI 指标 -->
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="label">当前总功率</div>
+      <div class="value" id="kpi-power">0 <small>kW</small></div>
+      <div class="trend down" id="kpi-power-trend">▼ 较昨日 -3.2%</div>
+    </div>
+    <div class="kpi">
+      <div class="label">今日用电量</div>
+      <div class="value" id="kpi-today">0 <small>kWh</small></div>
+      <div class="trend up" id="kpi-today-trend">▲ 较昨日 +1.8%</div>
+    </div>
+    <div class="kpi">
+      <div class="label">当月电费</div>
+      <div class="value" id="kpi-fee">0 <small>元</small></div>
+      <div class="trend down">▼ 峰谷优化节省 6.4%</div>
+    </div>
+    <div class="kpi">
+      <div class="label">单位面积电耗</div>
+      <div class="value" id="kpi-unit">0 <small>kWh/m²·日</small></div>
+      <div class="trend down">▼ 低于预警阈值</div>
+    </div>
+  </div>
+
+  <!-- 负荷曲线 + 当前电价 -->
+  <div class="grid2">
+    <div class="card">
+      <h3>24小时负荷曲线（今日 vs 昨日）</h3>
+      <canvas id="loadChart"></canvas>
+    </div>
+    <div class="card">
+      <h3>当前电价时段（广州）</h3>
+      <table class="price-table">
+        <tr><th>时段</th><th>时间</th><th>电价(元/kWh)</th></tr>
+        <tr id="row-jian"><td>尖峰</td><td>11-12, 15-17</td><td>1.7519</td></tr>
+        <tr id="row-feng"><td>高峰</td><td>10-12, 14-19</td><td>1.4071</td></tr>
+        <tr id="row-ping"><td>平段</td><td>其余</td><td>0.8390</td></tr>
+        <tr id="row-gu"><td>低谷</td><td>1-8, 12-13</td><td>0.3360</td></tr>
+      </table>
+      <div style="margin-top:14px;font-size:13px;color:#8fb4cc;">
+        当前时段：<span id="current-period" style="color:#4fc3f7;font-weight:bold;">--</span>
+      </div>
+      <div style="margin-top:6px;font-size:12px;color:#5a7a92;">
+        * 7-9月及气温≥35°C执行尖峰电价
+      </div>
+    </div>
+  </div>
+
+  <!-- 分项能耗 + 报警 -->
+  <div class="grid2b">
+    <div class="card">
+      <h3>分项用电占比</h3>
+      <canvas id="pieChart"></canvas>
+    </div>
+    <div class="card">
+      <h3>实时报警信息</h3>
+      <ul class="alarm-list" id="alarmList"></ul>
+    </div>
+  </div>
+
+  <!-- 月度趋势 -->
+  <div class="card">
+    <h3>近12个月用电量与电费趋势</h3>
+    <canvas id="monthChart"></canvas>
+  </div>
+
+</div>
+
+<footer>
+  数据蓝本：广州图书馆（建筑面积 98,177 m²） | 电价依据：广东省分时电价政策 | 节能基准：改造前 86.88 kWh/m²·年
+</footer>
+
+<script>
+/* ============ 时钟 ============ */
+function tick(){
+  const now = new Date();
+  document.getElementById('time').textContent =
+    now.toTimeString().slice(0,8);
+  document.getElementById('date').textContent =
+    now.getFullYear()+'年'+(now.getMonth()+1)+'月'+now.getDate()+'日 星期'+
+    '日一二三四五六'[now.getDay()];
+}
+setInterval(tick,1000); tick();
+
+/* ============ 实时 KPI 模拟（广州图书馆量级） ============ */
+// 基准：年用电931万kWh → 日均约25500 kWh，平均功率约1060 kW
+function rand(min,max){ return Math.random()*(max-min)+min; }
+
+let todayKWh = 12800; // 从0点累计
+function updateKPI(){
+  const hour = new Date().getHours();
+  // 白天功率高，夜间低
+  let basePower = (hour>=8 && hour<=21) ? rand(1250,1650) : rand(500,750);
+  document.getElementById('kpi-power').innerHTML =
+    basePower.toFixed(0)+' <small>kW</small>';
+
+  todayKWh += basePower/3600*5; // 每5秒更新
+  document.getElementById('kpi-today').innerHTML =
+    todayKWh.toFixed(0)+' <small>kWh</small>';
+
+  const fee = todayKWh * 0.95; // 综合电价约0.95元
+  document.getElementById('kpi-fee').innerHTML =
+    fee.toFixed(0)+' <small>元</small>';
+
+  const unit = todayKWh / 98177;
+  document.getElementById('kpi-unit').innerHTML =
+    unit.toFixed(3)+' <small>kWh/m²·日</small>';
+}
+updateKPI(); setInterval(updateKPI,5000);
+
+/* ============ 电价时段判断 ============ */
+function getPeriod(){
+  const h = new Date().getHours();
+  const m = new Date().getMonth()+1;
+  const isJianfengSeason = (m>=7 && m<=9);
+  if(isJianfengSeason && ((h===11)||(h===15||h===16))) return 'jian';
+  if((h===10||h===11||h===14||h===15||h===16||h===17||h===18)) return 'feng';
+  if((h>=1&&h<8)||(h===12)) return 'gu';
+  return 'ping';
+}
+const periodName = {jian:'尖峰',feng:'高峰',ping:'平段',gu:'低谷'};
+const periodColor = {jian:'#ff4757',feng:'#ffa502',ping:'#4fc3f7',gu:'#4caf50'};
+function refreshPeriod(){
+  const p = getPeriod();
+  document.getElementById('current-period').textContent = periodName[p];
+  document.getElementById('current-period').style.color = periodColor[p];
+  ['jian','feng','ping','gu'].forEach(k=>{
+    const row = document.getElementById('row-'+k);
+    row.className = (k===p)?'current':'';
+    row.style.background = (k===p)?'#12293f':'';
+  });
+}
+refreshPeriod(); setInterval(refreshPeriod,30000);
+
+/* ============ 负荷曲线 ============ */
+const hours = Array.from({length:24},(_,i)=>i+':00');
+// 广州图书馆典型日负荷（kW）
+const todayLoad = [480,450,440,430,430,450,520,680,950,1180,1380,1520,
+                   1480,1350,1420,1550,1580,1450,1280,1120,980,820,680,560];
+const yesterdayLoad = todayLoad.map(v=>v*rand(0.96,1.06));
+
+new Chart(document.getElementById('loadChart'),{
+  type:'line',
+  data:{
+    labels:hours,
+    datasets:[
+      {label:'今日负荷(kW)',data:todayLoad,borderColor:'#4fc3f7',
+       backgroundColor:'rgba(79,195,247,0.15)',fill:true,tension:0.4,pointRadius:0},
+      {label:'昨日负荷(kW)',data:yesterdayLoad,borderColor:'#7a9bb5',
+       borderDash:[4,4],fill:false,tension:0.4,pointRadius:0}
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{labels:{color:'#8fb4cc',font:{size:11}}}},
+    scales:{
+      x:{ticks:{color:'#5a7a92',font:{size:10}},grid:{color:'#1e3a52'}},
+      y:{ticks:{color:'#5a7a92',font:{size:10}},grid:{color:'#1e3a52'}}
+    }
+  }
+});
+
+/* ============ 分项占比（广州图书馆典型用能结构） ============ */
+new Chart(document.getElementById('pieChart'),{
+  type:'doughnut',
+  data:{
+    labels:['空调系统','照明系统','数据机房','电梯','给排水','厨房','其他'],
+    datasets:[{
+      data:[52,16,10,6,5,5,6],
+      backgroundColor:['#4fc3f7','#ffd93d','#ff6b6b','#4caf50',
+                       '#ffa502','#9c88ff','#7a9bb5']
+    }]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{position:'right',
+      labels:{color:'#8fb4cc',font:{size:11},padding:10}}}
+  }
+});
+
+/* ============ 月度趋势 ============ */
+const months = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+// 广州气候：夏季空调负荷高
+const monthKWh = [58,52,62,70,82,95,108,112,98,80,66,58]; // 万kWh
+new Chart(document.getElementById('monthChart'),{
+  type:'bar',
+  data:{
+    labels:months,
+    datasets:[
+      {label:'用电量(万kWh)',data:monthKWh,backgroundColor:'#1e5f8a',
+       yAxisID:'y',borderRadius:4},
+      {label:'电费(万元)',data:monthKWh.map(v=>v*0.95),type:'line',
+       borderColor:'#ffa502',backgroundColor:'#ffa502',yAxisID:'y1',
+       tension:0.4,pointRadius:3}
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{labels:{color:'#8fb4cc',font:{size:11}}}},
+    scales:{
+      x:{ticks:{color:'#5a7a92',font:{size:10}},grid:{display:false}},
+      y:{position:'left',ticks:{color:'#5a7a92',font:{size:10}},grid:{color:'#1e3a52'}},
+      y1:{position:'right',ticks:{color:'#ffa502',font:{size:10}},grid:{display:false}}
+    }
+  }
+});
+
+/* ============ 报警列表 ============ */
+const alarms = [
+  {level:'red',text:'尖峰时段(15:00-17:00)3楼阅览区照明未压减',time:'15:12'},
+  {level:'orange',text:'空调主机#2 功率达额定值92%',time:'14:48'},
+  {level:'orange',text:'日单位面积电耗 0.298 kWh/m²，接近阈值',time:'14:30'},
+  {level:'yellow',text:'数据机房 PUE 升至 1.62，建议优化制冷',time:'13:55'},
+  {level:'yellow',text:'电梯#3 待机功率异常，建议检修',time:'11:20'}
+];
+const tagText = {red:'紧急',orange:'重要',yellow:'提示'};
+document.getElementById('alarmList').innerHTML = alarms.map(a=>
+  `<li class="${a.level}">
+    <span>${a.text}</span>
+    <span><span class="tag ${a.level}">${tagText[a.level]}</span>
+    <span style="color:#5a7a92;margin-left:8px;">${a.time}</span></span>
+  </li>`
+).join('');
+
+/* ============ 动态追加新报警 ============ */
+setInterval(()=>{
+  const pool = [
+    {level:'yellow',text:'检测到某回路功率因数低于0.9'},
+    {level:'orange',text:'空调末端能耗较昨日同期上升8%'},
+    {level:'yellow',text:'建议将数据机房批处理任务转移至低谷时段'}
+  ];
+  const a = pool[Math.floor(Math.random()*pool.length)];
+  const now = new Date().toTimeString().slice(0,5);
+  const li = document.createElement('li');
+  li.className = a.level;
+  li.innerHTML = `<span>${a.text}</span>
+    <span><span class="tag ${a.level}">${tagText[a.level]}</span>
+    <span style="color:#5a7a92;margin-left:8px;">${now}</span></span>`;
+  const list = document.getElementById('alarmList');
+  list.insertBefore(li, list.firstChild);
+  if(list.children.length>7) list.removeChild(list.lastChild);
+},15000);
+</script>
+</body>
+</html>
